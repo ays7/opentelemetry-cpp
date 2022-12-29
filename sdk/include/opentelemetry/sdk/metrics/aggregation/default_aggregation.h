@@ -36,32 +36,27 @@ public:
         return (instrument_descriptor.value_type_ == InstrumentValueType::kLong)
                    ? std::move(std::unique_ptr<Aggregation>(new LongSumAggregation(true)))
                    : std::move(std::unique_ptr<Aggregation>(new DoubleSumAggregation(true)));
+
       case InstrumentType::kUpDownCounter:
       case InstrumentType::kObservableUpDownCounter:
         return (instrument_descriptor.value_type_ == InstrumentValueType::kLong)
                    ? std::move(std::unique_ptr<Aggregation>(new LongSumAggregation(false)))
                    : std::move(std::unique_ptr<Aggregation>(new DoubleSumAggregation(false)));
-        break;
-      case InstrumentType::kHistogram: {
-        if (instrument_descriptor.value_type_ == InstrumentValueType::kLong)
-        {
-          return (std::unique_ptr<Aggregation>(new LongHistogramAggregation(aggregation_config)));
-        }
-        else
-        {
-          return (std::unique_ptr<Aggregation>(new DoubleHistogramAggregation(aggregation_config)));
-        }
 
-        break;
-      }
+      case InstrumentType::kHistogram:
+        return (instrument_descriptor.value_type_ == InstrumentValueType::kLong)
+                   ? std::move(std::unique_ptr<Aggregation>(
+                         new LongHistogramAggregation(aggregation_config)))
+                   : std::move(std::unique_ptr<Aggregation>(
+                         new DoubleHistogramAggregation(aggregation_config)));
+
+      case InstrumentType::kGauge:
       case InstrumentType::kObservableGauge:
         return (instrument_descriptor.value_type_ == InstrumentValueType::kLong)
                    ? std::move(std::unique_ptr<Aggregation>(new LongLastValueAggregation()))
                    : std::move(std::unique_ptr<Aggregation>(new DoubleLastValueAggregation()));
-        break;
-      default:
-        return std::unique_ptr<Aggregation>(new DropAggregation());
-    };
+    }
+    return std::unique_ptr<Aggregation>(new DropAggregation());
   }
 
   static std::unique_ptr<Aggregation> CreateAggregation(
