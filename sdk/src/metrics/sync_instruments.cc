@@ -217,6 +217,82 @@ void DoubleHistogram::Record(double value, const opentelemetry::context::Context
   return storage_->RecordDouble(value, context);
 }
 
+LongGauge::LongGauge(InstrumentDescriptor instrument_descriptor,
+                     std::unique_ptr<SyncWritableMetricStorage> storage)
+    : Synchronous(instrument_descriptor, std::move(storage))
+{
+  if (!storage_)
+  {
+    OTEL_INTERNAL_LOG_ERROR("[LongGauge::LongGauge] - Error during constructing LongGauge."
+                            << "The metric storage is invalid"
+                            << "No value will be added");
+  }
+}
+
+void LongGauge::Record(int64_t value,
+                       const opentelemetry::common::KeyValueIterable &attributes,
+                       const opentelemetry::context::Context &context) noexcept
+{
+  if (storage_)
+  {
+    storage_->RecordLong(value, attributes, context);
+  }
+}
+
+void LongGauge::Record(int64_t value, const opentelemetry::context::Context &context) noexcept
+{
+  if (storage_)
+  {
+    storage_->RecordLong(value, context);
+  }
+}
+
+DoubleGauge::DoubleGauge(InstrumentDescriptor instrument_descriptor,
+                         std::unique_ptr<SyncWritableMetricStorage> storage)
+    : Synchronous(instrument_descriptor, std::move(storage))
+{
+  if (!storage_)
+  {
+    OTEL_INTERNAL_LOG_ERROR("[DoubleGauge::DoubleGauge] - Error during constructing DoubleGauge."
+                            << "The metric storage is invalid"
+                            << "No value will be added");
+  }
+}
+
+void DoubleGauge::Record(double value,
+                         const opentelemetry::common::KeyValueIterable &attributes,
+                         const opentelemetry::context::Context &context) noexcept
+{
+  if (!storage_)
+  {
+    return;
+  }
+  if (std::isnan(value) || std::isinf(value))
+  {
+    OTEL_INTERNAL_LOG_WARN(
+        "[DoubleGauge::Record(value, attributes)] nan/infinite value provided to "
+        "gauge Name:"
+        << instrument_descriptor_.name_);
+    return;
+  }
+  return storage_->RecordDouble(value, attributes, context);
+}
+
+void DoubleGauge::Record(double value, const opentelemetry::context::Context &context) noexcept
+{
+  if (!storage_)
+  {
+    return;
+  }
+  if (std::isnan(value) || std::isinf(value))
+  {
+    OTEL_INTERNAL_LOG_WARN("[DoubleGauge::Record(value)] nan/infinite value provided to gauge Name:"
+                           << instrument_descriptor_.name_);
+    return;
+  }
+  return storage_->RecordDouble(value, context);
+}
+
 }  // namespace metrics
 }  // namespace sdk
 OPENTELEMETRY_END_NAMESPACE

@@ -26,21 +26,21 @@ proto::metrics::v1::AggregationTemporality OtlpMetricUtils::GetProtoAggregationT
 metric_sdk::AggregationType OtlpMetricUtils::GetAggregationType(
     const opentelemetry::sdk::metrics::InstrumentType &instrument_type) noexcept
 {
-
-  if (instrument_type == metric_sdk::InstrumentType::kCounter ||
-      instrument_type == metric_sdk::InstrumentType::kUpDownCounter ||
-      instrument_type == metric_sdk::InstrumentType::kObservableCounter ||
-      instrument_type == metric_sdk::InstrumentType::kObservableUpDownCounter)
+  switch (instrument_type)
   {
-    return metric_sdk::AggregationType::kSum;
-  }
-  else if (instrument_type == metric_sdk::InstrumentType::kHistogram)
-  {
-    return metric_sdk::AggregationType::kHistogram;
-  }
-  else if (instrument_type == metric_sdk::InstrumentType::kObservableGauge)
-  {
-    return metric_sdk::AggregationType::kLastValue;
+    case metric_sdk::InstrumentType::kCounter:
+    case metric_sdk::InstrumentType::kUpDownCounter:
+    case metric_sdk::InstrumentType::kObservableCounter:
+    case metric_sdk::InstrumentType::kObservableUpDownCounter: {
+      return metric_sdk::AggregationType::kSum;
+    }
+    case metric_sdk::InstrumentType::kHistogram: {
+      return metric_sdk::AggregationType::kHistogram;
+    }
+    case metric_sdk::InstrumentType::kGauge:
+    case metric_sdk::InstrumentType::kObservableGauge: {
+      return metric_sdk::AggregationType::kLastValue;
+    }
   }
   return metric_sdk::AggregationType::kDrop;
 }
@@ -256,11 +256,15 @@ sdk::metrics::AggregationTemporality OtlpMetricUtils::DeltaTemporalitySelector(
     case sdk::metrics::InstrumentType::kCounter:
     case sdk::metrics::InstrumentType::kObservableCounter:
     case sdk::metrics::InstrumentType::kHistogram:
-    case sdk::metrics::InstrumentType::kObservableGauge:
       return sdk::metrics::AggregationTemporality::kDelta;
+
     case sdk::metrics::InstrumentType::kUpDownCounter:
     case sdk::metrics::InstrumentType::kObservableUpDownCounter:
       return sdk::metrics::AggregationTemporality::kCumulative;
+
+    case sdk::metrics::InstrumentType::kGauge:
+    case sdk::metrics::InstrumentType::kObservableGauge:
+      return sdk::metrics::AggregationTemporality::kUnspecified;
   }
   return sdk::metrics::AggregationTemporality::kUnspecified;
 }
