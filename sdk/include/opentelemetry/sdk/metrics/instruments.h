@@ -16,6 +16,7 @@ enum class InstrumentType
 {
   kCounter,
   kHistogram,
+  kGauge,
   kUpDownCounter,
   kObservableCounter,
   kObservableGauge,

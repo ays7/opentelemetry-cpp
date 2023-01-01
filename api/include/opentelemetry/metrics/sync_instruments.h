@@ -129,6 +129,48 @@ public:
   }
 };
 
+/** A gauge instrument that records values. */
+
+template <class T>
+class Gauge : public SynchronousInstrument
+{
+public:
+  /**
+   * Records a value.
+   *
+   * @param value Current gauge reading.
+   */
+  virtual void Record(T value, const opentelemetry::context::Context &context) noexcept = 0;
+
+  /**
+   * Records a value with a set of attributes.
+   *
+   * @param value Current gauge reading.
+   * @param attributes A set of attributes to associate with the count.
+   */
+  virtual void Record(T value,
+                      const common::KeyValueIterable &attributes,
+                      const opentelemetry::context::Context &context) noexcept = 0;
+
+  template <class U,
+            nostd::enable_if_t<common::detail::is_key_value_iterable<U>::value> * = nullptr>
+  void Record(T value, const U &attributes, const opentelemetry::context::Context &context) noexcept
+  {
+    this->Record(value, common::KeyValueIterableView<U>{attributes}, context);
+  }
+
+  void Record(
+      T value,
+      std::initializer_list<std::pair<nostd::string_view, common::AttributeValue>> attributes,
+      const opentelemetry::context::Context &context) noexcept
+  {
+    this->Record(value,
+                 nostd::span<const std::pair<nostd::string_view, common::AttributeValue>>{
+                     attributes.begin(), attributes.end()},
+                 context);
+  }
+};
+
 /** An up-down-counter instrument that adds or reduce values. */
 
 template <class T>
