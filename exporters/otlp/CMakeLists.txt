@@ -1,6 +1,9 @@
+# Copyright The OpenTelemetry Authors
+# SPDX-License-Identifier: Apache-2.0
+
 add_library(
   opentelemetry_otlp_recordable
-  src/otlp_log_recordable.cc src/otlp_recordable.cc
+  src/otlp_environment.cc src/otlp_log_recordable.cc src/otlp_recordable.cc
   src/otlp_populate_attribute_utils.cc src/otlp_recordable_utils.cc
   src/otlp_metric_utils.cc)
 set_target_properties(opentelemetry_otlp_recordable PROPERTIES EXPORT_NAME
@@ -94,7 +97,6 @@ if(WITH_OTLP_GRPC)
 endif()
 
 if(WITH_OTLP_HTTP)
-  find_package(CURL REQUIRED)
   add_library(opentelemetry_exporter_otlp_http_client src/otlp_http_client.cc)
   set_target_properties(opentelemetry_exporter_otlp_http_client
                         PROPERTIES EXPORT_NAME otlp_http_client)
@@ -160,18 +162,20 @@ if(WITH_OTLP_HTTP)
        opentelemetry_exporter_otlp_http_metric)
 endif()
 
-install(
-  TARGETS ${OPENTELEMETRY_OTLP_TARGETS}
-  EXPORT "${PROJECT_NAME}-target"
-  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+if(OPENTELEMETRY_INSTALL)
+  install(
+    TARGETS ${OPENTELEMETRY_OTLP_TARGETS}
+    EXPORT "${PROJECT_NAME}-target"
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 
-install(
-  DIRECTORY include/opentelemetry/exporters/otlp
-  DESTINATION include/opentelemetry/exporters
-  FILES_MATCHING
-  PATTERN "*.h")
+  install(
+    DIRECTORY include/opentelemetry/exporters/otlp
+    DESTINATION include/opentelemetry/exporters
+    FILES_MATCHING
+    PATTERN "*.h")
+endif()
 
 if(BUILD_TESTING)
   add_executable(otlp_recordable_test test/otlp_recordable_test.cc)

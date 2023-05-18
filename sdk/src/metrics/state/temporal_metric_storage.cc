@@ -17,8 +17,11 @@ namespace metrics
 {
 
 TemporalMetricStorage::TemporalMetricStorage(InstrumentDescriptor instrument_descriptor,
+                                             AggregationType aggregation_type,
                                              const AggregationConfig *aggregation_config)
-    : instrument_descriptor_(instrument_descriptor), aggregation_config_(aggregation_config)
+    : instrument_descriptor_(instrument_descriptor),
+      aggregation_type_(aggregation_type),
+      aggregation_config_(aggregation_config)
 {}
 
 bool TemporalMetricStorage::buildMetrics(CollectorHandle *collector,
@@ -57,16 +60,19 @@ bool TemporalMetricStorage::buildMetrics(CollectorHandle *collector,
   {
     agg_hashmap->GetAllEnteries(
         [&merged_metrics, this](const MetricAttributes &attributes, Aggregation &aggregation) {
-          auto agg = merged_metrics->Get(attributes);
+          auto hash = opentelemetry::sdk::common::GetHashForAttributeMap(attributes);
+          auto agg  = merged_metrics->Get(hash);
           if (agg)
           {
-            merged_metrics->Set(attributes, agg->Merge(aggregation));
+            merged_metrics->Set(attributes, agg->Merge(aggregation), hash);
           }
           else
           {
-            merged_metrics->Set(attributes, DefaultAggregation::CreateAggregation(
-                                                instrument_descriptor_, aggregation_config_)
-                                                ->Merge(aggregation));
+            merged_metrics->Set(attributes,
+                                DefaultAggregation::CreateAggregation(
+                                    aggregation_type_, instrument_descriptor_, aggregation_config_)
+                                    ->Merge(aggregation),
+                                hash);
           }
           return true;
         });
@@ -83,26 +89,30 @@ bool TemporalMetricStorage::buildMetrics(CollectorHandle *collector,
   auto reported = last_reported_metrics_.find(collector);
   if (reported != last_reported_metrics_.end())
   {
-    last_collection_ts     = last_reported_metrics_[collector].collection_ts;
     auto last_aggr_hashmap = std::move(last_reported_metrics_[collector].attributes_map);
     if (aggregation_temporarily == AggregationTemporality::kCumulative)
     {
       // merge current delta to previous cumulative
-      last_aggr_hashmap->GetAllEnteries([&merged_metrics, this](const MetricAttributes &attributes,
-                                                                Aggregation &aggregation) {
-        auto agg = merged_metrics->Get(attributes);
-        if (agg)
-        {
-          merged_metrics->Set(attributes, agg->Merge(aggregation));
-        }
-        else
-        {
-          auto def_agg =
-              DefaultAggregation::CreateAggregation(instrument_descriptor_, aggregation_config_);
-          merged_metrics->Set(attributes, def_agg->Merge(aggregation));
-        }
-        return true;
-      });
+      last_aggr_hashmap->GetAllEnteries(
+          [&merged_metrics, this](const MetricAttributes &attributes, Aggregation &aggregation) {
+            auto hash = opentelemetry::sdk::common::GetHashForAttributeMap(attributes);
+            auto agg  = merged_metrics->Get(hash);
+            if (agg)
+            {
+              merged_metrics->Set(attributes, agg->Merge(aggregation), hash);
+            }
+            else
+            {
+              auto def_agg = DefaultAggregation::CreateAggregation(
+                  aggregation_type_, instrument_descriptor_, aggregation_config_);
+              merged_metrics->Set(attributes, def_agg->Merge(aggregation), hash);
+            }
+            return true;
+          });
+    }
+    else
+    {
+      last_collection_ts = last_reported_metrics_[collector].collection_ts;
     }
     last_reported_metrics_[collector] =
         LastReportedMetrics{std::move(merged_metrics), collection_ts};
@@ -132,7 +142,7 @@ bool TemporalMetricStorage::buildMetrics(CollectorHandle *collector,
         PointDataAttributes point_data_attr;
         point_data_attr.point_data = aggregation.ToPoint();
         point_data_attr.attributes = attributes;
-        metric_data.point_data_attr_.emplace_back(std::move (point_data_attr));
+        metric_data.point_data_attr_.emplace_back(std::move(point_data_attr));
         return true;
       });
   return callback(metric_data);

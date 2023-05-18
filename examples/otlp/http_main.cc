@@ -8,6 +8,10 @@
 #include "opentelemetry/sdk/trace/tracer_provider_factory.h"
 #include "opentelemetry/trace/provider.h"
 
+// sdk::TracerProvider is just used to call ForceFlush and prevent to cancel running exportings when
+// destroy and shutdown exporters.It's optional to users.
+#include "opentelemetry/sdk/trace/tracer_provider.h"
+
 #include <string>
 
 #ifdef BAZEL_BUILD
@@ -17,7 +21,6 @@
 #endif
 
 namespace trace     = opentelemetry::trace;
-namespace nostd     = opentelemetry::nostd;
 namespace trace_sdk = opentelemetry::sdk::trace;
 namespace otlp      = opentelemetry::exporter::otlp;
 
@@ -35,6 +38,20 @@ void InitTracer()
       trace_sdk::TracerProviderFactory::Create(std::move(processor));
   // Set the global trace provider
   trace::Provider::SetTracerProvider(provider);
+}
+
+void CleanupTracer()
+{
+  // We call ForceFlush to prevent to cancel running exportings, It's optional.
+  opentelemetry::nostd::shared_ptr<opentelemetry::trace::TracerProvider> provider =
+      trace::Provider::GetTracerProvider();
+  if (provider)
+  {
+    static_cast<trace_sdk::TracerProvider *>(provider.get())->ForceFlush();
+  }
+
+  std::shared_ptr<opentelemetry::trace::TracerProvider> none;
+  trace::Provider::SetTracerProvider(none);
 }
 }  // namespace
 
@@ -77,4 +94,6 @@ int main(int argc, char *argv[])
   InitTracer();
 
   foo_library();
+
+  CleanupTracer();
 }

@@ -1,3 +1,6 @@
+# Copyright The OpenTelemetry Authors
+# SPDX-License-Identifier: Apache-2.0
+
 cmake_minimum_required(VERSION 3.1)
 
 # See https://cmake.org/cmake/help/v3.3/policy/CMP0057.html required by certain
@@ -5,7 +8,7 @@ cmake_minimum_required(VERSION 3.1)
 cmake_policy(SET CMP0057 NEW)
 
 # See https://cmake.org/cmake/help/v3.12/policy/CMP0074.html required by certain
-# version of zlib which is dependeded by cURL.
+# version of zlib which CURL depends on.
 if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.12")
   cmake_policy(SET CMP0074 NEW)
 endif()
@@ -107,11 +110,20 @@ else()
   )
 endif()
 
+option(WITH_NO_DEPRECATED_CODE "Do not include deprecated code" OFF)
+
 option(WITH_STL "Whether to use Standard Library for C++ latest features" OFF)
 option(WITH_GSL
        "Whether to use Guidelines Support Library for C++ latest features" OFF)
 
 option(WITH_ABSEIL "Whether to use Abseil for C++latest features" OFF)
+
+set(OPENTELEMETRY_INSTALL_default ON)
+if(NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+  set(OPENTELEMETRY_INSTALL_default OFF)
+endif()
+option(OPENTELEMETRY_INSTALL "Whether to install opentelemetry targets"
+       ${OPENTELEMETRY_INSTALL_default})
 
 if(NOT DEFINED CMAKE_CXX_STANDARD)
   if(WITH_STL)
@@ -148,6 +160,10 @@ if(WITH_STL)
 endif()
 
 option(WITH_OTLP "Whether to include the OpenTelemetry Protocol in the SDK" OFF)
+
+option(WITH_OTLP_HTTP "Whether to include the OTLP http exporter in the SDK"
+       OFF)
+
 option(WITH_ZIPKIN "Whether to include the Zipkin exporter in the SDK" OFF)
 
 option(WITH_PROMETHEUS "Whether to include the Prometheus Client in the SDK"
@@ -158,7 +174,7 @@ option(WITH_ELASTICSEARCH
 
 option(WITH_ZPAGES "Whether to include the Zpages Server in the SDK" OFF)
 
-option(WITH_JAEGER "Whether to include the Jaeger exporter" OFF)
+option(WITH_JAEGER "DEPRECATED - Whether to include the Jaeger exporter" OFF)
 
 option(WITH_NO_GETENV "Whether the platform supports environment variables" OFF)
 
@@ -169,6 +185,8 @@ option(WITH_BENCHMARK "Whether to build benchmark program" ON)
 option(BUILD_W3CTRACECONTEXT_TEST "Whether to build w3c trace context" OFF)
 
 option(OTELCPP_MAINTAINER_MODE "Build in maintainer mode (-Wall -Werror)" OFF)
+
+option(WITH_OPENTRACING "Whether to include the Opentracing shim" OFF)
 
 set(OTELCPP_PROTO_PATH
     ""
@@ -195,11 +213,42 @@ option(
   OFF)
 option(WITH_EXAMPLES "Whether to build examples" ON)
 
+# This requires CURL, OFF by default.
+option(
+  WITH_EXAMPLES_HTTP
+  "Whether to build http client/server examples. Requires WITH_EXAMPLES and CURL"
+  OFF)
+
+option(WITH_FUNC_TESTS "Whether to build functional tests" ON)
+
 option(WITH_LOGS_PREVIEW "Whether to build logs preview" OFF)
-option(WITH_ASYNC_EXPORT_PREVIEW "Whether enable async export" OFF)
+option(WITH_ASYNC_EXPORT_PREVIEW "Whether to enable async export" OFF)
+
+# EXPERIMENTAL
+option(WITH_OTLP_HTTP_SSL_PREVIEW "Whether to enable otlp http ssl export" OFF)
+
+# EXPERIMENTAL
+option(WITH_OTLP_HTTP_SSL_TLS_PREVIEW
+       "Whether to enable otlp http ssl tls min/max/cipher options" OFF)
+
 # Exemplar specs status is experimental, so behind feature flag by default
 option(WITH_METRICS_EXEMPLAR_PREVIEW
-       "Whethere to enable exemplar within metrics" OFF)
+       "Whether to enable exemplar within metrics" OFF)
+
+#
+# Verify options dependencies
+#
+
+if(WITH_EXAMPLES_HTTP AND NOT WITH_EXAMPLES)
+  message(FATAL_ERROR "WITH_EXAMPLES_HTTP=ON requires WITH_EXAMPLES=ON")
+endif()
+
+if(WITH_OTLP_HTTP_SSL_TLS_PREVIEW AND NOT WITH_OTLP_HTTP_SSL_PREVIEW)
+  message(
+    FATAL_ERROR
+      "WITH_OTLP_HTTP_SSL_TLS_PREVIEW=ON requires WITH_OTLP_HTTP_SSL_PREVIEW=ON"
+  )
+endif()
 
 find_package(Threads)
 
@@ -219,6 +268,12 @@ function(install_windows_deps)
 endfunction()
 
 if(WITH_JAEGER)
+  if(WITH_NO_DEPRECATED_CODE)
+    message(FATAL_ERROR "Jaeger is DEPRECATED.")
+  else()
+    message(WARNING "Jaeger is DEPRECATED.")
+  endif()
+
   find_package(Thrift QUIET)
   if(Thrift_FOUND)
     find_package(Boost REQUIRED)
@@ -314,21 +369,43 @@ if(WITH_OTLP)
     endif()
   endif()
   include(CMakeDependentOption)
-  if(WITH_OTLP_HTTP OR (NOT DEFINED WITH_OTLP_HTTP AND NOT DEFINED
-                                                       CACHE{WITH_OTLP_HTTP}))
-    find_package(CURL)
-  endif()
 
   cmake_dependent_option(
     WITH_OTLP_GRPC "Whether to include the OTLP gRPC exporter in the SDK" ON
     "gRPC_FOUND" OFF)
-  cmake_dependent_option(
-    WITH_OTLP_HTTP "Whether to include the OTLP http exporter in the SDK" ON
-    "CURL_FOUND" OFF)
 
   message(STATUS "PROTOBUF_PROTOC_EXECUTABLE=${PROTOBUF_PROTOC_EXECUTABLE}")
   include(cmake/opentelemetry-proto.cmake)
 endif()
+
+#
+# Do we need HTTP CLIENT CURL ?
+#
+
+if(WITH_OTLP_HTTP
+   OR WITH_ELASTICSEARCH
+   OR WITH_JAEGER
+   OR WITH_ZIPKIN
+   OR BUILD_W3CTRACECONTEXT_TEST
+   OR WITH_EXAMPLES_HTTP)
+  set(WITH_HTTP_CLIENT_CURL ON)
+else()
+  set(WITH_HTTP_CLIENT_CURL OFF)
+endif()
+
+#
+# Do we need CURL ?
+#
+
+if((NOT WITH_API_ONLY) AND WITH_HTTP_CLIENT_CURL)
+  # No specific version required.
+  find_package(CURL REQUIRED)
+  message(STATUS "Found CURL: ${CURL_LIBRARIES}, version ${CURL_VERSION}")
+endif()
+
+#
+# Do we need NLOHMANN_JSON ?
+#
 
 if(WITH_ELASTICSEARCH
    OR WITH_ZIPKIN
@@ -340,32 +417,9 @@ if(WITH_ELASTICSEARCH
 else()
   set(USE_NLOHMANN_JSON OFF)
 endif()
+
 if((NOT WITH_API_ONLY) AND USE_NLOHMANN_JSON)
-  # nlohmann_json package is required for most SDK build configurations
-  find_package(nlohmann_json QUIET)
-  set(nlohmann_json_clone FALSE)
-  if(nlohmann_json_FOUND)
-    message("Using external nlohmann::json")
-  elseif(EXISTS ${PROJECT_SOURCE_DIR}/.git
-         AND EXISTS
-             ${PROJECT_SOURCE_DIR}/third_party/nlohmann-json/CMakeLists.txt)
-    message("Trying to use local nlohmann::json from submodule")
-    set(JSON_BuildTests
-        OFF
-        CACHE INTERNAL "")
-    set(JSON_Install
-        ON
-        CACHE INTERNAL "")
-    # This option allows to link nlohmann_json::nlohmann_json target
-    add_subdirectory(${PROJECT_SOURCE_DIR}/third_party/nlohmann-json)
-    # This option allows to add header to include directories
-    include_directories(
-      ${PROJECT_SOURCE_DIR}/third_party/nlohmann-json/single_include)
-  else()
-    set(nlohmann_json_clone TRUE)
-    include(cmake/nlohmann-json.cmake)
-    message("\nnlohmann_json package was not found. Cloning from github")
-  endif()
+  include(cmake/nlohmann-json.cmake)
 endif()
 
 if(OTELCPP_MAINTAINER_MODE)
@@ -445,6 +499,11 @@ if(OTELCPP_MAINTAINER_MODE)
     add_compile_options(/wd4267)
 
     # Enforced warnings
+    add_compile_options(/we4265) # 'class': class has virtual functions, but
+                                 # destructor is not virtual
+    add_compile_options(/we5204) # A class with virtual functions has
+                                 # non-virtual trivial destructor.
+
   elseif()
     message(FATAL_ERROR "Building with unknown compiler in maintainer mode.")
   endif()
@@ -488,9 +547,43 @@ endif()
 
 include(CMakePackageConfigHelpers)
 
+if(DEFINED OPENTELEMETRY_BUILD_DLL)
+  if(NOT MSVC)
+    message(WARNING "Build DLL is supposed to work with MSVC!")
+  endif()
+  if(WITH_STL)
+    message(
+      WARNING "Build DLL with C++ STL could cause binary incompatibility!")
+  endif()
+  add_definitions(-DOPENTELEMETRY_BUILD_EXPORT_DLL)
+endif()
+
 include_directories(api/include)
 
 add_subdirectory(api)
+
+if(WITH_OPENTRACING)
+  find_package(OpenTracing CONFIG QUIET)
+  if(NOT OpenTracing_FOUND)
+    set(OPENTRACING_DIR "third_party/opentracing-cpp")
+    message("Trying to use local ${OPENTRACING_DIR} from submodule")
+    if(EXISTS "${PROJECT_SOURCE_DIR}/${OPENTRACING_DIR}/.git")
+      set(SAVED_BUILD_TESTING ${BUILD_TESTING})
+      set(BUILD_TESTING OFF)
+      add_subdirectory(${OPENTRACING_DIR})
+      set(BUILD_TESTING ${SAVED_BUILD_TESTING})
+    else()
+      message(
+        FATAL_ERROR
+          "\nopentracing-cpp package was not found. Please either provide it manually or clone with submodules. "
+          "To initialize, fetch and checkout any nested submodules, you can use the following command:\n"
+          "git submodule update --init --recursive")
+    endif()
+  else()
+    message("Using external opentracing-cpp")
+  endif()
+  add_subdirectory(opentracing-shim)
+endif()
 
 if(NOT WITH_API_ONLY)
   set(BUILD_TESTING ${BUILD_TESTING})
@@ -501,49 +594,55 @@ if(NOT WITH_API_ONLY)
   add_subdirectory(sdk)
   add_subdirectory(ext)
   add_subdirectory(exporters)
+
   if(BUILD_TESTING)
     add_subdirectory(test_common)
   endif()
   if(WITH_EXAMPLES)
     add_subdirectory(examples)
   endif()
+  if(WITH_FUNC_TESTS)
+    add_subdirectory(functional)
+  endif()
 endif()
 
-# Export cmake config and support find_packages(opentelemetry-cpp CONFIG) Write
-# config file for find_packages(opentelemetry-cpp CONFIG)
-set(INCLUDE_INSTALL_DIR "${CMAKE_INSTALL_INCLUDEDIR}")
-configure_package_config_file(
-  "${CMAKE_CURRENT_LIST_DIR}/cmake/opentelemetry-cpp-config.cmake.in"
-  "${CMAKE_CURRENT_BINARY_DIR}/cmake/${PROJECT_NAME}/${PROJECT_NAME}-config.cmake"
-  INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}"
-  PATH_VARS OPENTELEMETRY_ABI_VERSION_NO OPENTELEMETRY_VERSION PROJECT_NAME
-            INCLUDE_INSTALL_DIR CMAKE_INSTALL_LIBDIR
-  NO_CHECK_REQUIRED_COMPONENTS_MACRO)
-
-# Write version file for find_packages(opentelemetry-cpp CONFIG)
-write_basic_package_version_file(
-  "${CMAKE_CURRENT_BINARY_DIR}/cmake/${PROJECT_NAME}/${PROJECT_NAME}-config-version.cmake"
-  VERSION ${OPENTELEMETRY_VERSION}
-  COMPATIBILITY ExactVersion)
-
-install(
-  FILES
+if(OPENTELEMETRY_INSTALL)
+  # Export cmake config and support find_packages(opentelemetry-cpp CONFIG)
+  # Write config file for find_packages(opentelemetry-cpp CONFIG)
+  set(INCLUDE_INSTALL_DIR "${CMAKE_INSTALL_INCLUDEDIR}")
+  configure_package_config_file(
+    "${CMAKE_CURRENT_LIST_DIR}/cmake/opentelemetry-cpp-config.cmake.in"
     "${CMAKE_CURRENT_BINARY_DIR}/cmake/${PROJECT_NAME}/${PROJECT_NAME}-config.cmake"
+    INSTALL_DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}"
+    PATH_VARS OPENTELEMETRY_ABI_VERSION_NO OPENTELEMETRY_VERSION PROJECT_NAME
+              INCLUDE_INSTALL_DIR CMAKE_INSTALL_LIBDIR
+    NO_CHECK_REQUIRED_COMPONENTS_MACRO)
+
+  # Write version file for find_packages(opentelemetry-cpp CONFIG)
+  write_basic_package_version_file(
     "${CMAKE_CURRENT_BINARY_DIR}/cmake/${PROJECT_NAME}/${PROJECT_NAME}-config-version.cmake"
-  DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}")
+    VERSION ${OPENTELEMETRY_VERSION}
+    COMPATIBILITY ExactVersion)
 
-# Export all components
-export(
-  EXPORT "${PROJECT_NAME}-target"
-  NAMESPACE "${PROJECT_NAME}::"
-  FILE "${CMAKE_CURRENT_BINARY_DIR}/cmake/${PROJECT_NAME}/${PROJECT_NAME}-target.cmake"
-)
-install(
-  EXPORT "${PROJECT_NAME}-target"
-  NAMESPACE "${PROJECT_NAME}::"
-  DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}")
+  install(
+    FILES
+      "${CMAKE_CURRENT_BINARY_DIR}/cmake/${PROJECT_NAME}/${PROJECT_NAME}-config.cmake"
+      "${CMAKE_CURRENT_BINARY_DIR}/cmake/${PROJECT_NAME}/${PROJECT_NAME}-config-version.cmake"
+    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}")
 
-if(BUILD_PACKAGE)
-  include(cmake/package.cmake)
-  include(CPack)
+  # Export all components
+  export(
+    EXPORT "${PROJECT_NAME}-target"
+    NAMESPACE "${PROJECT_NAME}::"
+    FILE "${CMAKE_CURRENT_BINARY_DIR}/cmake/${PROJECT_NAME}/${PROJECT_NAME}-target.cmake"
+  )
+  install(
+    EXPORT "${PROJECT_NAME}-target"
+    NAMESPACE "${PROJECT_NAME}::"
+    DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${PROJECT_NAME}")
+
+  if(BUILD_PACKAGE)
+    include(cmake/package.cmake)
+    include(CPack)
+  endif()
 endif()
